@@ -23,6 +23,8 @@
 uint8_t broadcast_mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 uint8_t test_data[MAX_TEST_DATA_LENGTH];
 uint64_t last_send_time;
+uint64_t send_success_time;
+uint64_t recv_time;
 
 void latency_test_send(const uint8_t *mac_addr, esp_now_send_status_t status);
 void latency_test_both(const uint8_t *mac_addr, const uint8_t *data, int data_len);
@@ -89,10 +91,8 @@ void user_send(uint8_t* data, size_t len) {
  * @param status 
  */
 void latency_test_send(const uint8_t *mac_addr, esp_now_send_status_t status) {
-    if (status == ESP_NOW_SEND_SUCCESS) { // Send success, measure time
-        uint64_t send_success_time = esp_timer_get_time();
-        ESP_LOGI("ESP-NOW", "Send time: %lld us", send_success_time - last_send_time);
-    }
+    // Send success, measure time
+    send_success_time = esp_timer_get_time();
 }
 
 /**
@@ -103,6 +103,7 @@ void latency_test_send(const uint8_t *mac_addr, esp_now_send_status_t status) {
  * @param data_len 
  */
 void latency_test_both(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
-    uint64_t recv_time = esp_timer_get_time();
+    recv_time = esp_timer_get_time();
+    ESP_LOGI("ESP-NOW", "Send success time: %lld us", send_success_time - last_send_time);
     ESP_LOGI("ESP-NOW", "Send-recv time: %lld us with %d bytes", recv_time - last_send_time, data_len);
 }
