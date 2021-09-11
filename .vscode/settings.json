@@ -1,0 +1,12 @@
+{
+  "C_Cpp.intelliSenseEngine": "Tag Parser",
+  "files.associations": {
+    "*.js": "javascriptreact",
+    "*.S": "asm-intel-x86-generic",
+    "*.s": "asm",
+    "*.h": "c",
+    "array": "c",
+    "string": "c",
+    "string_view": "c"
+  }
+}
