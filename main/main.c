@@ -29,6 +29,7 @@ uint64_t recv_time;
 void latency_test_send(const uint8_t *mac_addr, esp_now_send_status_t status);
 void latency_test_both(const uint8_t *mac_addr, const uint8_t *data, int data_len);
 void user_send();
+esp_err_t get_macAddr();
 
 void app_main(void)
 {
@@ -44,6 +45,9 @@ void app_main(void)
 
     printf("%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
             (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
+
+    // Print mac addr
+    get_macAddr();
 
     // Init ESP-NOW
     ESP_LOGI("ESP-NOW", "Init ESP-NOW");
@@ -106,4 +110,36 @@ void latency_test_both(const uint8_t *mac_addr, const uint8_t *data, int data_le
     recv_time = esp_timer_get_time();
     ESP_LOGI("ESP-NOW", "Send success time: %lld us", send_success_time - last_send_time);
     ESP_LOGI("ESP-NOW", "Send-recv time: %lld us with %d bytes", recv_time - last_send_time, data_len);
+}
+
+/**
+ * @brief Get mac addr of the current ESP32 over serial
+ * 
+ * @return esp_err_t 
+ */
+esp_err_t get_macAddr() {
+    uint8_t mac[6] = {0};
+    esp_err_t err = ESP_OK;
+
+    err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    if (err != ESP_OK)
+        return err;
+    ESP_LOGI("MAC", "Station MAC addr: %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    err = esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
+    if (err != ESP_OK)
+        return err;
+    ESP_LOGI("MAC", "AP MAC addr: %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    err = esp_read_mac(mac, ESP_MAC_BT);
+    if (err != ESP_OK)
+        return err;
+    ESP_LOGI("MAC", "Bluetooth MAC addr: %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    
+    err = esp_read_mac(mac, ESP_MAC_ETH);
+    if (err != ESP_OK)
+        return err;
+    ESP_LOGI("MAC", "Ethernet MAC addr: %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    
+    return err;
 }
