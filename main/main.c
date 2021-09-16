@@ -11,6 +11,8 @@
 ************************************************************/
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
@@ -18,9 +20,23 @@
 #include "esp_now.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
+#include "nvs_flash.h"
+
+/* ESPNOW can work in both station and softap mode. It is configured in menuconfig. */
+#if CONFIG_ESPNOW_WIFI_MODE_STATION
+#define ESPNOW_WIFI_MODE WIFI_MODE_STA
+#define ESPNOW_WIFI_IF   ESP_IF_WIFI_STA
+#else
+#define ESPNOW_WIFI_MODE WIFI_MODE_AP
+#define ESPNOW_WIFI_IF   ESP_IF_WIFI_AP
+#endif
 
 #define MAX_TEST_DATA_LENGTH 250
-uint8_t broadcast_mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+// uint8_t broadcast_mac[6] = {0xc8, 0x2b, 0x96, 0xb9, 0x37, 0x61};
+uint8_t broadcast_mac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 uint8_t test_data[MAX_TEST_DATA_LENGTH];
 uint64_t last_send_time;
 uint64_t send_success_time;
@@ -49,6 +65,24 @@ void app_main(void)
     // Print mac addr
     get_macAddr();
 
+    // Init nvs
+    // Initialize NVS
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK( nvs_flash_erase() );
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( ret );
+
+    // Init WiFi
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
+    ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
+    ESP_ERROR_CHECK( esp_wifi_set_mode(ESPNOW_WIFI_MODE) );
+    ESP_ERROR_CHECK( esp_wifi_start());
+
     // Init ESP-NOW
     ESP_LOGI("ESP-NOW", "Init ESP-NOW");
     ESP_ERROR_CHECK(esp_now_init());
@@ -69,13 +103,53 @@ void app_main(void)
     ESP_LOGI("ESP-NOW", "Register ESP-NOW recv callback func");
     ESP_ERROR_CHECK(esp_now_register_recv_cb(latency_test_both));
 
+    /* Add broadcast peer information to peer list. */
+    esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
+    if (peer == NULL) {
+        ESP_LOGE("Peer", "Malloc peer information fail");
+        esp_now_deinit();
+        return ESP_FAIL;
+    }
+    memset(peer, 0, sizeof(esp_now_peer_info_t));
+    // TODO Need to know the WiFi channel?
+    peer->channel = 0;
+    peer->ifidx = ESPNOW_WIFI_IF;
+    peer->encrypt = false;
+    memcpy(peer->peer_addr, broadcast_mac, ESP_NOW_ETH_ALEN);
+    ESP_ERROR_CHECK( esp_now_add_peer(peer) );
+    free(peer);
+
     // Start to send
     // 16 byte test
+    ESP_LOGI("ESP-NOW", "Send user data to mac: %x:%x:%x:%x:%x:%x", broadcast_mac[0], broadcast_mac[1], broadcast_mac[2], broadcast_mac[3], broadcast_mac[4], broadcast_mac[5]);
     user_send(test_data, 16);
     vTaskDelay(10/portTICK_PERIOD_MS);
 
+    // Second send
+    // vTaskDelay(10 / portTICK_RATE_MS);
+    user_send(test_data, 16);
+    vTaskDelay(10/portTICK_PERIOD_MS);
+
+    // Third send
+    // vTaskDelay(1000 / portTICK_RATE_MS);
+    user_send(test_data, 32);
+    vTaskDelay(10/portTICK_PERIOD_MS);
+
+    // Fourth send
+    // vTaskDelay(1000 / portTICK_RATE_MS);
+    user_send(test_data, 64);
+    vTaskDelay(10/portTICK_PERIOD_MS);
+
+    // Fifth send
+    // vTaskDelay(1000 / portTICK_RATE_MS);
+    user_send(test_data, 128);
+    vTaskDelay(10/portTICK_PERIOD_MS);
+
+
     // deadloop
-    for(;;);
+    for(;;) {
+        vTaskDelay(1000 / portTICK_RATE_MS);
+    }
 }
 
 /**
@@ -85,6 +159,7 @@ void app_main(void)
  * @param len 
  */
 void user_send(uint8_t* data, size_t len) {
+    last_send_time = esp_timer_get_time();
     esp_now_send(broadcast_mac, data, len);
 }
 
@@ -124,12 +199,12 @@ esp_err_t get_macAddr() {
     err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
     if (err != ESP_OK)
         return err;
-    ESP_LOGI("MAC", "Station MAC addr: %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    ESP_LOGI("MAC", "Station MAC addr:\t %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     err = esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
     if (err != ESP_OK)
         return err;
-    ESP_LOGI("MAC", "AP MAC addr: %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    ESP_LOGI("MAC", "AP MAC addr:\t %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     err = esp_read_mac(mac, ESP_MAC_BT);
     if (err != ESP_OK)
@@ -139,7 +214,7 @@ esp_err_t get_macAddr() {
     err = esp_read_mac(mac, ESP_MAC_ETH);
     if (err != ESP_OK)
         return err;
-    ESP_LOGI("MAC", "Ethernet MAC addr: %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    ESP_LOGI("MAC", "Ethernet MAC addr:\t %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     
     return err;
 }
